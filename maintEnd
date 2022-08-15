@@ -1,0 +1,75 @@
+#!/bin/sh
+
+# maintEnd
+# version 0.6  / August 2022
+# Greg Stewart - greg@2o6.org
+
+#########################
+#                       #
+# Define some variables #
+#                       #
+#########################
+USER     =  "root@YOURCOMPANY.TLD"            # The from ADDRESS for email notices
+RECEIVER =  "team@YOURCOMPANY.TLD"            # Email address (or addresses, comma delimeted) where notices are sent
+NURL     =  "https://HOST.YOURCOMPANY.TLD"    # Base URL for the Nagios instance
+CONAME   =  "YOURCOMPANY"                     # Just a friendly company name for the email footer
+
+
+if [ $# -eq 0 ]; then
+    echo ""
+    echo " ###########################################################################################"
+    echo " # maintEnd- places a Nagios monitored host and all child services in maintenance mode.    #"
+    echo " # Note: the hostname provided on the command line must match the hostname displayed on    #"
+    echo " #       the Nagios page.                                                                  #"
+    echo " ###########################################################################################"
+    echo
+    echo "   usage: maintEnd [hostname]"
+    echo
+    exit 1
+fi
+
+
+
+if [ "$EUID" -ne 0 ]
+  then echo
+       echo "WARNING!!! The tool is not running as the 'root' user."
+       echo "Elevated privileges are required. Please sudo or su to root."
+       echo
+fi
+
+SERVER_NAME=$HOSTNAME  
+SENDER=$(whoami)  
+HOSTLIST=($(find /usr/local/nagios/etc/objects/ -name $1.cfg -exec egrep 'service_desc' {} \;  | awk '{print $2}' ))
+
+for i in "${HOSTLIST[@]}"
+do
+  :
+  #$SVCS=$SVCS $i
+  SVCS+=" - ${i}\n"
+
+done
+
+SUBJECT="${1} has been removed from maintenance mode in Nagios"
+
+[[ ! -z "$SENDER" ]] && ACT=$SENDER || ACT=$SUDO_USER
+
+TEXT="'${1}' was removed from maintenance mode via CLI.\n"
+TEXT2="Action performed by: $SUDO_USER\n"
+TEXT3="\n"
+#Remotely logged in from: ${SSH_CLIENT/ */}\n\n"
+TEXT4="The following services on '$1' WILL now alert:\n"
+TEXT5="${SVCS}\n"
+TEXT6="Status can be viewed here: ${NURL}/nagios/cgi-bin/status.cgi?host=$1&style=detail"
+TEXT7="\n\n--------------------------------------------------\nThanks for flying with ${CONAME}."
+
+now=`date +%s`
+commandfile='/usr/local/nagios/var/rw/nagios.cmd'
+
+/usr/bin/printf "[%lu] ENABLE_HOST_AND_CHILD_NOTIFICATIONS;$1\n" $now > $commandfile    
+echo "Removing $1 from maintenance mode. Alerts for all services will be resumed."
+echo
+
+MAIL_TXT="Subject: $SUBJECT\nFrom: $USER\nTo: $RECEIVER\n\n$TEXT$TEXT1$TEXT2$TEXT3$TEXT4$TEXT5$TEXT6$TEXT7"  
+#echo "echo -e ' . ${MAIL_TXT} . '| /usr/sbin/sendmail -t"
+      echo -e ${MAIL_TXT} | /usr/sbin/sendmail -t
+exit $?  
